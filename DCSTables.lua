@@ -1,6 +1,6 @@
 local ADDON_NAME, namespace = ... 	--localization
 local L = namespace.L 				--localization
-local name,addon = ...
+local _,addon = ...
 local doll_tooltip_format = PAPERDOLLFRAME_TOOLTIP_FORMAT
 namespace.doll_tooltip_format = doll_tooltip_format
 local highlight_code = HIGHLIGHT_FONT_COLOR_CODE
@@ -247,7 +247,12 @@ DCS_TableData.StatData.ItemLevelFrame = {
     category   = true,
     frame      = char_ctats_pane.ItemLevelFrame,
     updateFunc = function(statFrame)
-		local avgItemLevel, avgItemLevelEquipped = GetAverageItemLevel()
+		-- Check for DejaCharacterStats. Lets hide the frame if the AddOn is not loaded.
+		if IsAddOnLoaded("ElvUI") then
+			_G.CharacterStatsPane.ItemLevelFrame.Value:Show()
+			_G.CharacterFrame.ItemLevelText:SetText('')
+		end
+		local avgItemLevel, avgItemLevelEquipped, avgItemLevelPvP = GetAverageItemLevel();
 		local DCS_DecimalPlaces
 		local multiplier
 		--if DCS_ItemLevelTwoDecimalsCheck:GetChecked(true) then
@@ -265,6 +270,7 @@ DCS_TableData.StatData.ItemLevelFrame = {
 		avgItemLevel = floor(multiplier*avgItemLevel)/multiplier;
 		avgItemLevelEquipped = floor(multiplier*avgItemLevelEquipped)/multiplier;
 		statFrame.tooltip = highlight_code..dcs_format(doll_tooltip_format, STAT_AVERAGE_ITEM_LEVEL).." "..dcs_format(DCS_DecimalPlaces, avgItemLevel);
+
 		--[[-
 		if not DCS_ILvl_EQ_AV_Check:GetChecked(true) or (avgItemLevel == avgItemLevelEquipped) then
 			PaperDollFrame_SetLabelAndText(statFrame, STAT_AVERAGE_ITEM_LEVEL, dcs_format(DCS_DecimalPlaces,avgItemLevelEquipped), false, avgItemLevelEquipped)
@@ -295,14 +301,29 @@ DCS_TableData.StatData.ItemLevelFrame = {
 		end
 		statFrame.tooltip = statFrame.tooltip .. font_color_close;
 		statFrame.tooltip2 = STAT_AVERAGE_ITEM_LEVEL_TOOLTIP;
+		if ( avgItemLevel ~= avgItemLevelPvP ) then
+			statFrame.tooltip2 = statFrame.tooltip2.."\n\n"..STAT_AVERAGE_PVP_ITEM_LEVEL:format(avgItemLevelPvP);
+		end
 		statFrame:Show()
     end
+}
+
+DCS_TableData.StatData.ActiBlizzWalkout = {
+    category   = true,
+    frame      = char_ctats_pane.ActiBlizzWalkout,
+    updateFunc = function()	end
 }
 
 DCS_TableData.StatData.GeneralCategory = {
     category   = true,
     frame      = char_ctats_pane.GeneralCategory,
     updateFunc = function()	end
+}
+
+DCS_TableData.StatData.CorruptionCategory = {
+    category   = true,
+    frame      = char_ctats_pane.CorruptionCategory,
+    updateFunc = function() end
 }
 
 DCS_TableData.StatData.AttributesCategory = {
@@ -335,6 +356,63 @@ DCS_TableData.StatData.RatingCategory = {
     updateFunc = function()	end
 }
 
+
+DCS_TableData.StatData.HonorCategory = {
+    category   = true,
+    frame      = char_ctats_pane.HonorCategory,
+    updateFunc = function()	end
+}
+
+DCS_TableData.StatData.ConquestCategory = {
+    category   = true,
+    frame      = char_ctats_pane.ConquestCategory,
+    updateFunc = function()	end
+}
+
+function MovementSpeed_OnUpdate(statFrame, elapsedTime) --Added this so Vehicles update as well. Shouldn't be too bad if other addons access this function, but still not as clean as I would like.
+	local unit = statFrame.unit;
+	local currentSpeed, runSpeed, flightSpeed, swimSpeed = GetUnitSpeed(unit);
+	runSpeed = runSpeed/BASE_MOVEMENT_SPEED*100;
+	flightSpeed = flightSpeed/BASE_MOVEMENT_SPEED*100;
+	swimSpeed = swimSpeed/BASE_MOVEMENT_SPEED*100;
+	currentSpeed = currentSpeed/BASE_MOVEMENT_SPEED*100;
+	
+	-- Pets seem to always actually use run speed
+	if (unit == "pet") then
+		swimSpeed = runSpeed;
+	end
+
+	-- Determine whether to display running, flying, or swimming speed
+	local speed = runSpeed;
+	local swimming = IsSwimming(unit);
+	if (UnitInVehicle(unit)) then
+		local vehicleSpeed = GetUnitSpeed("Vehicle")/BASE_MOVEMENT_SPEED*100;
+		speed = vehicleSpeed
+	elseif (swimming) then
+		speed = swimSpeed;
+	elseif (UnitOnTaxi("player") ) then
+		speed = currentSpeed;
+	elseif (IsFlying(unit)) then
+		speed = flightSpeed;
+	end
+
+	-- Hack so that your speed doesn't appear to change when jumping out of the water
+	if (IsFalling(unit)) then
+		if (statFrame.wasSwimming) then
+			speed = swimSpeed;
+		end
+	else
+		statFrame.wasSwimming = swimming;
+	end
+
+	local valueText = format("%d%%", speed+0.5);
+	PaperDollFrame_SetLabelAndText(statFrame, STAT_MOVEMENT_SPEED, valueText, false, speed);
+	statFrame.speed = speed;
+	statFrame.runSpeed = runSpeed;
+	statFrame.flightSpeed = flightSpeed;
+	statFrame.swimSpeed = swimSpeed;
+end
+
 local move_speed  --Needs a colon like all other stats have. Concatenated so we don't have to redo every localization to include a colon.
 if namespace.locale == "zhTW" then
 	move_speed = L["Movement Speed"] .. "：" --Chinese colon
@@ -345,6 +423,8 @@ hooksecurefunc("MovementSpeed_OnUpdate", function(statFrame)
 	statFrame.Label:SetText(move_speed)
 end)
 
+
+local SPELL_POWER_MANA = Enum.PowerType.Mana
 DCS_TableData.StatData.DCS_POWER = {
 	updateFunc = function(statFrame, unit)
 		local powerType = SPELL_POWER_MANA --changing here as well for similarity
@@ -381,6 +461,23 @@ DCS_TableData.StatData.DCS_ALTERNATEMANA = {
 		end
 	end
 }
+
+--Appears to be duplicate unless for vehicles but above function appears to include vehicles as well.
+-- DCS_TableData.StatData.DCS_MOVESPEED = { --Added this so Vehicles update as well
+-- 	updateFunc = function(statFrame, unit)
+-- 		if ( unit ~= "player" ) then
+-- 			statFrame:Hide();
+-- 			return;
+-- 		end
+
+-- 		statFrame.wasSwimming = nil;
+-- 		statFrame.unit = unit;
+-- 		statFrame:Show();
+-- 		MovementSpeed_OnUpdate(statFrame);
+
+-- 		statFrame.onEnterFunc = MovementSpeed_OnEnter;
+-- 	end
+-- }
 
 DCS_TableData.StatData.DCS_ATTACK_ATTACKSPEED = {
 	updateFunc = function(statFrame, unit)
@@ -490,13 +587,14 @@ DCS_TableData.StatData.GCD = {
 				gcd = casterGCD()
 			end
 		else
-			if (primaryStat == LE_UNIT_STAT_INTELLECT) or (classfilename == "HUNTER") or (primaryStat == LE_UNIT_STAT_STRENGTH) or (classfilename == "DEMONHUNTER")then 
+			if (primaryStat == LE_UNIT_STAT_INTELLECT) or (classfilename == "HUNTER") or (classfilename == "SHAMAN") or (primaryStat == LE_UNIT_STAT_STRENGTH) or (classfilename == "DEMONHUNTER")then 
 				-- adding wariors, paladins
 				-- tested with Crusader Strike, Judgment on retribution paladin
 				-- tested with Consecration, Avenger's Shield, Judgment on protection paladin
 				-- tested with Slam on level 1 warior
 				-- tested with Cobra shot and Multi-shot for hunter. Have troll hunter but don't have pet with Ancient Hysteria //Kakjens
 				-- adding DK-s as reported by Mpstark
+				-- tested enhancement shaman with several spells including Lighnting Shield. Wind Shear appears not to induce GCD
 				gcd = casterGCD()
 			else
 				gcd = 1 -- tested with mutilate for assasination rogues.
@@ -721,13 +819,21 @@ DCS_TableData.StatData.MASTERY_RATING = {
 		local _, bonuscoeff = GetMasteryEffect();
 		local stat = CR_MASTERY
 		local rating = GetCombatRating(stat)
-		if (UnitLevel("player") < SHOW_MASTERY_LEVEL) then
-			color_rating1 = "|cff7f7f7f" .. color_rating1 .. "|r"
-			color_rating2 = "|cff7f7f7f" .. color_rating2 .. "|r"
-			color_format = "|cff7f7f7f" .. color_format .. "|r"
-			local requires = L["Requires Level "]
-			add_text = " |cffff0000(" .. requires .. SHOW_MASTERY_LEVEL ..")|r"
-		end
+		-- Mastery is always shown now in Shadowlands
+		-- if (UnitLevel("player") < SHOW_MASTERY_LEVEL) then
+		-- 	if not namespace.configMode then
+		-- 		if namespace.hidemastery then
+		-- 			statFrame:Hide();
+		-- 			--print("hiding")
+		-- 			return;
+		-- 		end
+		-- 	end
+		-- 	color_rating1 = "|cff7f7f7f" .. color_rating1 .. "|r"
+		-- 	color_rating2 = "|cff7f7f7f" .. color_rating2 .. "|r"
+		-- 	color_format = "|cff7f7f7f" .. color_format .. "|r"
+		-- 	local requires = L["Requires Level "]
+		-- 	add_text = " |cffff0000(" .. requires .. SHOW_MASTERY_LEVEL ..")|r"
+		-- end
 		local percentage = dcs_format("%.2f",GetCombatRatingBonus(stat)*bonuscoeff)
 		PaperDollFrame_SetLabelAndText(statFrame, "", dcs_format(color_format,rating), false, rating);
 		statFrame.Label:SetText(color_rating2)
@@ -771,5 +877,144 @@ DCS_TableData.StatData.PARRY_RATING = {
 DCS_TableData.StatData.SPEED_RATING = {
 	updateFunc = function(statFrame, unit)
 		statframeratings(statFrame, unit, CR_SPEED)
+	end
+}
+
+DCS_TableData.StatData.CR_CORRUPTION = {
+	updateFunc = function(statFrame, unit)
+		if ( unit ~= "player" ) then
+			statFrame:Hide();
+			return;
+		end
+		local ratingname = L["Base Corruption"]
+		local basecorruption = GetCorruption()
+
+		local c, r = GetCorruption(), GetCorruptionResistance()
+		CR_CORRUPTION = max(0, c - r)  -- max to prevent negative values
+
+		PaperDollFrame_SetLabelAndText(statFrame, ratingname, basecorruption, false, basecorruption);
+		statFrame.tooltip = highlight_code..ratingname.." "..basecorruption..font_color_close;
+		statFrame:Show();
+	end
+}
+
+DCS_TableData.StatData.CR_CORRUPTION_RESISTANCE = {
+	updateFunc = function(statFrame, unit)
+		if ( unit ~= "player" ) then
+			statFrame:Hide();
+			return;
+		end
+		local ratingname = L["Corruption Resistance"]
+		local corruptionresistance = GetCorruptionResistance()
+
+		CR_CORRUPTION_RESISTANCE = corruptionresistance
+
+		PaperDollFrame_SetLabelAndText(statFrame, ratingname, corruptionresistance, false, corruptionresistance);
+		statFrame.tooltip = highlight_code..ratingname.." "..corruptionresistance..font_color_close;
+		statFrame:Show();
+	end
+}
+
+DCS_TableData.StatData.CR_TOTAL_CORRUPTION = {
+	updateFunc = function(statFrame, unit)
+		if ( unit ~= "player" ) then
+			statFrame:Hide();
+			return;
+		end
+		local ratingname = L["Total Corruption"]
+		local c, r = GetCorruption(), GetCorruptionResistance()
+		local totalcorruption = max(0, c - r) -- max to prevent negative values
+		
+		local c, r = GetCorruption(), GetCorruptionResistance()
+		CR_TOTAL_CORRUPTION = max(0, c - r)  -- max to prevent negative values
+
+		PaperDollFrame_SetLabelAndText(statFrame, "|cff8787ED"..ratingname.."|r", "|cff8787ED"..totalcorruption.."|r", false, totalcorruption);
+		statFrame.tooltip = "|cff8787ED" .. ratingname .. " " .. totalcorruption .. "|r";
+		statFrame:Show();
+	end
+}
+
+local function UpdateRatingFrame(statFrame, unit, bracketIndex, bracketString, bracketCodeName)
+	return function(statFrame, unit)
+		RequestRatedInfo();
+		local rating = select(1, GetPersonalRatedInfo(bracketIndex));
+		local ratingStr = tostring(rating);
+
+		PaperDollFrame_SetLabelAndText(statFrame, bracketString, ratingStr, false, rating);
+		statFrame.tooltip = highlight_code..dcs_format(doll_tooltip_format, bracketString).." "..ratingStr..font_color_close;
+		statFrame.tooltip2 = _G["STAT_"..bracketCodeName.."_TOOLTIP"];
+		statFrame:Show();
+	end
+end
+
+DCS_TableData.StatData.RATING_2V2 = {
+	updateFunc = UpdateRatingFrame(statFrame, unit, 1, L["2v2 Rating"], "RATING_2V2");
+}
+
+DCS_TableData.StatData.RATING_3V3 = {
+	updateFunc = UpdateRatingFrame(statFrame, unit, 2, L["3v3 Rating"], "RATING_3V3");
+}
+
+DCS_TableData.StatData.RATING_RBG = {
+	updateFunc = UpdateRatingFrame(statFrame, unit, 4, L["RBG Rating"], "RATING_RBG");
+}
+
+local function RoundNumber(value, decimalPlaces)
+	local roundedValue;
+	local scale = 10 ^ decimalPlaces;
+
+	roundedValue = (floor(value * scale + 0.5))/scale;
+
+	return roundedValue;
+end
+
+local function BuildProgressAndPercentString(current, maximum)
+	local str;
+
+	if (maximum and not (maximum == 0)) then
+		local percent = 100 * (current / maximum);
+		local rounded = RoundNumber(percent, 2);
+		str = current .. "/" .. maximum .. " (" .. rounded .. "%)";
+	else
+		str = "-"
+	end
+
+	return str;
+end
+
+DCS_TableData.StatData.CONQUEST_PROGRESS = {
+	updateFunc = function(statFrame, unit)
+		local currentValue, maxValue, questID = PVPGetConquestLevelInfo();
+		local conquestStr = BuildProgressAndPercentString(currentValue, maxValue);
+
+		PaperDollFrame_SetLabelAndText(statFrame, "Conquest", conquestStr, false, conquestValue);
+		statFrame.tooltip = highlight_code..dcs_format(doll_tooltip_format, L["Conquest"]).." "..conquestStr..font_color_close;
+		statFrame.tooltip2 = _G["STAT_CONQUEST_TOOLTIP"];
+		statFrame:Show();
+	end
+}
+
+DCS_TableData.StatData.HONOR_PROGRESS = {
+	updateFunc = function(statFrame, unit)
+		local currentValue = UnitHonor("player");
+		local maxValue = UnitHonorMax("player");
+		local honorProgressStr = BuildProgressAndPercentString(currentValue, maxValue);
+
+		PaperDollFrame_SetLabelAndText(statFrame, "Honor", honorProgressStr, false, currentValue);
+		statFrame.tooltip = highlight_code..dcs_format(doll_tooltip_format, L["Honor"]).." "..honorProgressStr..font_color_close;
+		statFrame.tooltip2 = _G["STAT_HONOR_PROGRESS_TOOLTIP"];
+		statFrame:Show();
+	end
+}
+
+DCS_TableData.StatData.HONOR_LEVEL = {
+	updateFunc = function(statFrame, unit)
+		local honorLevel = UnitHonorLevel("player");
+		local honorLevelStr = tostring(honorLevel);
+
+		PaperDollFrame_SetLabelAndText(statFrame, "Honor Level", honorLevelStr, false, honorLevel);
+		statFrame.tooltip = highlight_code..dcs_format(doll_tooltip_format, L["Honor Level"]).." "..honorLevelStr..font_color_close;
+		statFrame.tooltip2 = _G["STAT_HONOR_LEVEL_TOOLTIP"];
+		statFrame:Show();
 	end
 }
